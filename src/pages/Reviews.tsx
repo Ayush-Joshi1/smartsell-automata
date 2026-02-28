@@ -50,9 +50,11 @@ export default function Reviews() {
 
     setSubmitting(true);
     try {
+      const customerName = user.user_metadata?.full_name || userEmail || "";
       const payload = {
         user_id: user.id,
         product_id: selectedProduct.id,
+        customer_name: customerName,
         customer_email: userEmail,
         rating,
         title: title.trim(),
