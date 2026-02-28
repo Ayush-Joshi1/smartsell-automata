@@ -2,7 +2,7 @@
   "name": "vite_react_shadcn_ts",
   "private": true,
   "version": "0.0.0",
-  "homepage": "https://Ayush-Joshi1.github.io/smart-auto-sales",
+  "homepage": "https://Ayush-Joshi1.github.io/smartsell-automata",
   "type": "module",
   "scripts": {
     "dev": "vite",
