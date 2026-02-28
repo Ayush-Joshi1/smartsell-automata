@@ -16,36 +16,48 @@ export type Database = {
     Tables: {
       complaints: {
         Row: {
+          category: string | null
           created_at: string
           customer_email: string
+          customer_name: string | null
           description: string
+          draft_response: string | null
           id: string
           order_id: string | null
           sentiment: string | null
           status: string
           subject: string
+          suggested_action: string | null
           user_id: string | null
         }
         Insert: {
+          category?: string | null
           created_at?: string
           customer_email: string
+          customer_name?: string | null
           description: string
+          draft_response?: string | null
           id?: string
           order_id?: string | null
           sentiment?: string | null
           status?: string
           subject: string
+          suggested_action?: string | null
           user_id?: string | null
         }
         Update: {
+          category?: string | null
           created_at?: string
           customer_email?: string
+          customer_name?: string | null
           description?: string
+          draft_response?: string | null
           id?: string
           order_id?: string | null
           sentiment?: string | null
           status?: string
           subject?: string
+          suggested_action?: string | null
           user_id?: string | null
         }
         Relationships: []
@@ -164,6 +176,7 @@ export type Database = {
         Row: {
           created_at: string
           customer_email: string
+          customer_name: string | null
           id: string
           product_id: string
           rating: number
@@ -174,6 +187,7 @@ export type Database = {
         Insert: {
           created_at?: string
           customer_email: string
+          customer_name?: string | null
           id?: string
           product_id: string
           rating: number
@@ -184,6 +198,7 @@ export type Database = {
         Update: {
           created_at?: string
           customer_email?: string
+          customer_name?: string | null
           id?: string
           product_id?: string
           rating?: number
