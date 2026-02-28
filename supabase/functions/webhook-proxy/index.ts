@@ -57,12 +57,13 @@ function formatComplaintPayload(payload: Record<string, unknown>) {
 
 function formatReviewPayload(payload: Record<string, unknown>) {
   return {
-    customer_name: payload.customer_name || "",
-    customer_email: payload.customer_email || "",
-    product_id: payload.product_id || "",
-    rating: payload.rating || 0,
-    review_text: payload.review_text || "",
-    timestamp: new Date().toISOString(),
+    body: {
+      body: {
+        name: payload.customer_name || "",
+        email: payload.customer_email || "",
+        review: payload.review_text || "",
+      },
+    },
   };
 }
 
