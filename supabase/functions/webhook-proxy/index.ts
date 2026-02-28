@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
 const WEBHOOK_URLS: Record<string, string> = {
@@ -13,13 +13,38 @@ const WEBHOOK_URLS: Record<string, string> = {
   review: "https://ayush24.app.n8n.cloud/webhook/submit-your-review",
 };
 
+const ORDER_REQUIRED_FIELDS = [
+  "order_id", "product_id", "product_name", "quantity",
+  "unit_price", "total_price", "customer_name", "customer_email",
+  "shipping_address",
+];
+
+function validateOrderPayload(payload: Record<string, unknown>): string | null {
+  for (const field of ORDER_REQUIRED_FIELDS) {
+    if (payload[field] === undefined || payload[field] === null || payload[field] === "") {
+      return `Missing required field: ${field}`;
+    }
+  }
+  return null;
+}
+
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = 10000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    return res;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    // Verify auth
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
@@ -31,9 +56,8 @@ serve(async (req) => {
       global: { headers: { Authorization: authHeader } },
     });
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims) {
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
     }
 
@@ -45,20 +69,42 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: 'Invalid webhook type' }), { status: 400, headers: corsHeaders });
     }
 
-    // Forward to n8n webhook
-    const webhookResponse = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    // If order, also send invoice
+    // Validate order payload fields
     if (type === 'order') {
-      await fetch(WEBHOOK_URLS.invoice, {
+      const validationError = validateOrderPayload(payload);
+      if (validationError) {
+        return new Response(JSON.stringify({ error: validationError }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    // Forward to webhook with 10s timeout
+    let webhookResponse: Response;
+    try {
+      webhookResponse = await fetchWithTimeout(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+    } catch (err) {
+      console.error("Webhook request failed:", type, err instanceof Error ? err.message : err);
+      const isTimeout = err instanceof DOMException && err.name === 'AbortError';
+      return new Response(JSON.stringify({ error: isTimeout ? 'Request timed out. Please try again.' : 'Failed to process request. Please try again later.' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // If order, also send invoice
+    if (type === 'order') {
+      try {
+        await fetchWithTimeout(WEBHOOK_URLS.invoice, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      } catch (err) {
+        console.error("Invoice webhook failed:", err instanceof Error ? err.message : err);
+      }
     }
 
     const result = await webhookResponse.text();
@@ -68,8 +114,7 @@ serve(async (req) => {
     });
   } catch (error: unknown) {
     console.error("Webhook proxy error:", error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    return new Response(JSON.stringify({ error: errorMessage }), {
+    return new Response(JSON.stringify({ error: "An unexpected error occurred. Please try again." }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
