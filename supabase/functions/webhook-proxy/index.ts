@@ -28,7 +28,7 @@ function validateOrderPayload(payload: Record<string, unknown>): string | null {
   return null;
 }
 
-async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = 10000): Promise<Response> {
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = 25000): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -37,6 +37,33 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = 1
   } finally {
     clearTimeout(timer);
   }
+}
+
+function formatComplaintPayload(payload: Record<string, unknown>) {
+  return {
+    body: {
+      body: {
+        data: {
+          fields: [
+            { value: payload.customer_name || "" },
+            { value: payload.customer_email || "" },
+            { value: payload.description || "" },
+          ],
+        },
+      },
+    },
+  };
+}
+
+function formatReviewPayload(payload: Record<string, unknown>) {
+  return {
+    customer_name: payload.customer_name || "",
+    customer_email: payload.customer_email || "",
+    product_id: payload.product_id || "",
+    rating: payload.rating || 0,
+    review_text: payload.review_text || "",
+    timestamp: new Date().toISOString(),
+  };
 }
 
 serve(async (req) => {
@@ -77,14 +104,28 @@ serve(async (req) => {
       }
     }
 
+    // Format payload based on type for n8n compatibility
+    let formattedPayload: unknown;
+    if (type === 'complaint') {
+      formattedPayload = formatComplaintPayload(payload);
+    } else if (type === 'review') {
+      formattedPayload = formatReviewPayload(payload);
+    } else {
+      formattedPayload = payload;
+    }
+
+    console.log(`[webhook-proxy] Forwarding ${type} request`);
+    console.log(`[webhook-proxy] Payload keys:`, Object.keys(payload));
+
     // Forward to webhook with 10s timeout
     let webhookResponse: Response;
     try {
       webhookResponse = await fetchWithTimeout(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(formattedPayload),
       });
+      console.log(`[webhook-proxy] ${type} response status:`, webhookResponse.status);
     } catch (err) {
       console.error("Webhook request failed:", type, err instanceof Error ? err.message : err);
       const isTimeout = err instanceof DOMException && err.name === 'AbortError';
@@ -97,17 +138,20 @@ serve(async (req) => {
     // If order, also send invoice
     if (type === 'order') {
       try {
-        await fetchWithTimeout(WEBHOOK_URLS.invoice, {
+        console.log(`[webhook-proxy] Sending invoice webhook`);
+        const invoiceRes = await fetchWithTimeout(WEBHOOK_URLS.invoice, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(formattedPayload),
         });
+        console.log(`[webhook-proxy] Invoice response status:`, invoiceRes.status);
       } catch (err) {
         console.error("Invoice webhook failed:", err instanceof Error ? err.message : err);
       }
     }
 
     const result = await webhookResponse.text();
+    console.log(`[webhook-proxy] ${type} result:`, result.substring(0, 200));
     return new Response(JSON.stringify({ success: true, result }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
